@@ -1,0 +1,38 @@
+{
+    "name": "dpuk/wp-development-tools",
+    "description": "Adds custom WP-CLI commands",
+    "type": "wordpress-plugin",
+    "license": "GPL-2.0+",
+    "authors": [
+      {
+        "name": "Daniel Pringle",
+        "email": "dan@danielpringle.co.uk"
+      }
+    ],
+    "require": {
+      "php": ">=7.4",
+      "wp-cli/wp-cli-bundle": "^2.12"
+    },
+    "require-dev": {
+      "wp-coding-standards/wpcs": "^3.0",
+      "phpcompatibility/phpcompatibility-wp": "*",
+      "php-parallel-lint/php-parallel-lint": "^1.3"
+    },
+    "scripts": {
+      "check-cs": [
+        "@php ./vendor/bin/phpcs"
+      ],
+      "fix-cs": [
+        "@php ./vendor/bin/phpcbf"
+      ],
+      "lint": [
+        "@php ./vendor/php-parallel-lint/php-parallel-lint/parallel-lint . -e php --show-deprecated --exclude vendor --exclude node_modules --exclude .git"
+      ]
+    },
+    "config": {
+      "allow-plugins": {
+        "dealerdirect/phpcodesniffer-composer-installer": true
+      }
+    }
+  }
+
