@@ -1,5 +1,10 @@
 <?php
 
+/**
+ * A WP-CLI diagnostic command for testing remote HTTP endpoints using WordPress's HTTP API. 
+ * It helps verify connectivity, authentication, response status, timing, headers, and body content, making it useful for debugging  REST APIs, Application Password authentication, and remote integrations.
+ */
+
 namespace DPUK\DevelopmentTools;
 
 use WP_CLI;

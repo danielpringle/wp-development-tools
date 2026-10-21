@@ -1,16 +1,8 @@
 <?php
 /**
- * WP-CLI Command: Find Block in Posts
+ * DPUK CLI Command: block:find
  *
- * Provides a custom WP-CLI command to search the posts table for usage of a specific block within a date range.
- * Outputs the IDs of posts containing the specified block, with options to filter by block name and date range.
- *
- * Usage examples:
- *   wp dpuk-find-block --block=heading
- *   wp dpuk-find-block --block=my-plugin/my-custom-block
- *   wp dpuk-find-block --start-date=2023-01-01 --end-date=2023-12-31 --block=paragraph
- *
- * Note: The block name should match the string after <!-- wp: in your post content. For example, for <!-- wp:heading --> use --block=heading.
+ * Finds published posts containing a specified Gutenberg block within a date range.
  *
  * @package DPUK\DevelopmentTools
  * @since 1.0.0
@@ -19,145 +11,168 @@
 namespace DPUK\DevelopmentTools;
 
 use WP_CLI;
-
+use WP_CLI_Command;
 
 if ( defined( 'WP_CLI' ) && WP_CLI ) {
 
 	/**
-	 * Class for Custom CLI Command to find a block in the posts table
-	 *
-	 * @category Class
+	 * Find published posts containing a Gutenberg block.
 	 */
-	class Find_Block_In_Posts {
+	class DPUK_Find_Block_Command extends WP_CLI_Command {
 
 		/**
-		 * Command name
-		 *
-		 * @var string
-		 */
-		private $command_name = 'dpuk-find-block';
-
-		/**
-		 * Constructor - registers the command
-		 */
-		public function __construct() {
-			WP_CLI::add_command( $this->command_name, $this );
-		}
-
-		/**
-		 * Finds in which posts a block is being used.
+		 * Finds published posts containing a specified block.
 		 *
 		 * ## OPTIONS
 		 *
-		 * [--block=<name>]
-		 * : The block name as it appears after <!-- wp: in post content, e.g. 'heading' for <!-- wp:heading --> or 'my-plugin/my-custom-block' for <!-- wp:my-plugin/my-custom-block -->.
+		 * --block=<name>
+		 * : Block name, for example "heading" or "my-plugin/my-custom-block".
 		 *
 		 * [--start-date=<date>]
-		 * : The query start date in Y-m-d format. Default is 30 days ago.
+		 * : Start date in Y-m-d format. Defaults to 30 days ago.
 		 *
 		 * [--end-date=<date>]
-		 * : The query end date in Y-m-d format. Default is today.
+		 * : End date in Y-m-d format. Defaults to today.
 		 *
+		 * [--format=<format>]
+		 * : Output format. Accepts table, csv, json, yaml, ids, count.
+		 * ---
+		 * default: table
+		 * ---
 		 *
 		 * ## EXAMPLES
 		 *
-		 * wp dpuk-find-block
-		 * wp dpuk-find-block --start-date=2023-10-10 --end-date=2025-07-1
-		 * wp dpuk-find-block --block=heading
-		 * wp dpuk-find-block --start-date=2023-10-10 --block=heading
-		 * wp dpuk-find-block --start-date=2023-10-10 --end-date=2025-07-1 --block=heading
-		 * wp dpuk-find-block --start-date=2023-10-10 --block=wp:heading | tee output.log
-		 *
-		 * wp help dpuk-find-block
+		 *     wp dpuk block:find --block=heading
+		 *     wp dpuk block:find --block=my-plugin/my-custom-block
+		 *     wp dpuk block:find --block=heading --start-date=2026-01-01
+		 *     wp dpuk block:find --block=heading --start-date=2026-01-01 --end-date=2026-08-17
+		 *     wp dpuk block:find --block=heading --format=json
 		 *
 		 * @when after_wp_load
 		 *
-		 * @param array $args stores all the positional arguments
-		 * @param array $assoc_args stores all the flags
+		 * @param array $args       Positional arguments.
+		 * @param array $assoc_args Associative arguments.
 		 */
-		public function __invoke( $args, $assoc_args ) {
+		public function __invoke( array $args, array $assoc_args ): void {
+			$block      = $assoc_args['block'] ?? null;
+			$start_date = $assoc_args['start-date'] ?? gmdate( 'Y-m-d', strtotime( '-30 days' ) );
+			$end_date   = $assoc_args['end-date'] ?? gmdate( 'Y-m-d' );
+			$format     = $assoc_args['format'] ?? 'table';
 
-			\WP_CLI::line( 'Scanning posts...' );
-
-			// default start and end dates
-			$start_date = '2000-01-01';
-			$end_date   = gmdate( 'Y-m-d' );
-
-			// default block name
-			$block = 'dpuk/insert-post-link';
-
-			// Check for block flag
-			if ( isset( $assoc_args['block'] ) ) {
-				$block = $assoc_args['block'];
+			if ( ! $block ) {
+				WP_CLI::error( 'Please specify a block with --block=<name>.' );
 			}
 
-			// Check for start date flag
-			if ( isset( $assoc_args['start-date'] ) ) {
-				$start_date = $assoc_args['start-date'];
-				if ( $start_date > $end_date ) {
-					\WP_CLI::error( 'The start date cannot be after the end date' );
-					return;
-				}
+			$this->validate_date_or_error( $start_date, 'start date' );
+			$this->validate_date_or_error( $end_date, 'end date' );
+
+			if ( $start_date > $end_date ) {
+				WP_CLI::error( 'The start date cannot be after the end date.' );
 			}
 
-			// Check for end date flag
-			if ( isset( $assoc_args['end-date'] ) ) {
-				$end_date = gmdate( 'Y-m-d', strtotime( $assoc_args['end-date'] ) );
-				if ( $end_date < $start_date ) {
-					\WP_CLI::error( 'The end date cannot be before the start date' );
-					return;
-				}
+			WP_CLI::line( 'Scanning posts...' );
+
+			$post_ids = $this->find_block(
+				$block,
+				$start_date,
+				$end_date
+			);
+
+			if ( empty( $post_ids ) ) {
+				WP_CLI::success( 'No matching posts found.' );
+				return;
 			}
 
-			// Output passed information
-			\WP_CLI::line( 'Block: ' . $block );
-			\WP_CLI::line( 'Start date: ' . $start_date );
-			\WP_CLI::line( 'End date: ' . $end_date );
+			$results = array_map(
+				static function ( int $post_id ): array {
+					return [ 'ID' => $post_id ];
+				},
+				$post_ids
+			);
 
-			// Run DB query
-			$post_ids = $this->find_block( $block, $start_date, $end_date );
+			WP_CLI\Utils\format_items(
+				$format,
+				$results,
+				[ 'ID' ]
+			);
 
-			// Output result
-			if ( count( $post_ids ) > 0 ) {
-				\WP_CLI::line( 'Post IDs:' );
-				foreach ( $post_ids as $post ) {
-					\WP_CLI::line( $post->ID );
-				}
-				\WP_CLI::success( sprintf( 'Block %s found in %u posts :) ', $block, count( $post_ids ) ) );
-			} else {
-				\WP_CLI::error( 'No results were found for the date range' );
-			}
-		}
-
-		/**
-		 * WPDB query to find a block in the posts table
-		 *
-		 * @param string $block the name of the block
-		 * @param string $start_date the start date for the query
-		 * @param string $end_date the end date for the query
-		 * @return array results array of post IDs
-		 */
-		public function find_block( $block, $start_date, $end_date ) {
-			global $wpdb;
-
-			$like = '%<!-- wp:' . $block . '%';
-
-			return $wpdb->get_results(
-				$wpdb->prepare(
-					"SELECT ID
-			FROM {$wpdb->posts}
-			WHERE post_content LIKE %s
-			AND post_date BETWEEN %s AND %s
-			AND post_status = 'publish'",
-					$like,
-					$start_date,
-					$end_date
+			WP_CLI::success(
+				sprintf(
+					'Block %s found in %d posts.',
+					$block,
+					count( $post_ids )
 				)
 			);
 		}
+
+		/**
+		 * Find published posts containing a block.
+		 *
+		 * @param string $block      Block name.
+		 * @param string $start_date Inclusive start date.
+		 * @param string $end_date   Inclusive end date.
+		 * @return array<int> Post IDs.
+		 */
+		private function find_block(
+			string $block,
+			string $start_date,
+			string $end_date
+		): array {
+			global $wpdb;
+
+			$like = '%' . $wpdb->esc_like( '<!-- wp:' . $block ) . '%';
+
+			$end_date_exclusive = gmdate(
+				'Y-m-d',
+				strtotime( $end_date . ' +1 day' )
+			);
+
+			return array_map(
+				'intval',
+				$wpdb->get_col(
+					$wpdb->prepare(
+						"SELECT ID
+						FROM {$wpdb->posts}
+						WHERE post_content LIKE %s
+						AND post_date >= %s
+						AND post_date < %s
+						AND post_status = 'publish'",
+						$like,
+						$start_date,
+						$end_date_exclusive
+					)
+				)
+			);
+		}
+
+		/**
+		 * Validate a date or terminate the command with an error.
+		 *
+		 * @param string $date  Date to validate.
+		 * @param string $label Human-readable date label.
+		 */
+		private function validate_date_or_error(
+			string $date,
+			string $label
+		): void {
+			$parsed = \DateTimeImmutable::createFromFormat(
+				'Y-m-d',
+				$date
+			);
+
+			if ( ! $parsed || $parsed->format( 'Y-m-d' ) !== $date ) {
+				WP_CLI::error(
+					sprintf(
+						'Invalid %s. Expected Y-m-d format.',
+						$label
+					)
+				);
+			}
+		}
 	}
 
-	// Auto-register when class is loaded
-	new Find_Block_In_Posts();
-
+	WP_CLI::add_command(
+		'dpuk block:find',
+		DPUK_Find_Block_Command::class
+	);
 }
